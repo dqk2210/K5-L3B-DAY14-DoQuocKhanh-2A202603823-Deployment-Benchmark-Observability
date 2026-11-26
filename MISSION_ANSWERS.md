@@ -147,19 +147,29 @@ Content-Type: application/json
 
 ## Part 3: Cloud Deployment (Deploy Agent Part 6)
 
-### Exercise 3.1 / 3.2: Deploy lên nền tảng chính (Railway hoặc Render)
-- **Nền tảng chọn:** [Railway / Render]
-- **Public URL:** `https://...`
+### Exercise 3.1 / 3.2: Deploy lên nền tảng chính (Render)
+- **Nền tảng chọn:** Render (Docker Web Service + Render Key Value / Redis, triển khai từ thư mục `06-lab-complete/`).
+- **Public URL:** `https://day14-agent-khanh.onrender.com`
+- **Kết quả kiểm tra 4 lệnh CP6:** `/health` → `200`, `/ready` → `200`, `POST /ask` không key → `401`, `POST /ask` có `X-API-Key` → `200`.
 - **Screenshots:**
   - `screenshots/dashboard.png`
   - `screenshots/running.png`
   - `screenshots/test.png`
 
 ### So sánh `railway.toml` và `render.yaml`
-- [TODO: Khác nhau chỗ nào, vì sao? (Hoặc ghi URL nếu đã deploy cả 2 nền tảng)]
+| Tiêu chí | `railway.toml` (Railway) | `render.yaml` (Render Blueprint) |
+|---|---|---|
+| Định dạng & phạm vi | TOML, cấu hình build/deploy cho **1 service** (các service phụ như Redis hay biến env thường tạo/gắn qua UI hoặc CLI) | YAML (IaC), khai báo được **nhiều service** cùng lúc (web service, Redis, envVars...) trong cùng 1 file |
+| Build & Runtime | `[build]` chỉ rõ `builder = "DOCKERFILE"`, `dockerfilePath = "Dockerfile"` | Mỗi service khai báo `type: web`, `runtime: docker` (hoặc `python`), `dockerfilePath: ./Dockerfile` |
+| Health check | `[deploy]` dùng `healthcheckPath = "/health"`, `healthcheckTimeout`, `restartPolicyType` | Dùng `healthCheckPath: /health` trực tiếp trên service |
+| Quản lý secret / env | Không khai báo secret trong `railway.toml`; đặt qua `railway variables set` hoặc Dashboard (dùng reference `${{Redis.REDIS_URL}}`) | Khai báo `envVars` ngay trong YAML, bắt buộc dùng `generateValue: true` (tự sinh random) hoặc `sync: false` (nhập trên Dashboard) để không hardcode secret vào Git |
 
 ### Exercise 3.3: GCP Cloud Run (`03-cloud-deployment/production-cloud-run/`)
-- [TODO: Đọc `cloudbuild.yaml` và `service.yaml`, viết 3–5 dòng mô tả pipeline CI/CD đi qua những bước nào]
+Qua `cloudbuild.yaml` và `service.yaml`, pipeline CI/CD trên GCP đi qua 4 bước chính khi push code lên nhánh `main`:
+1. **Test (`test`):** Dùng container `python:3.11-slim` cài dependencies từ `requirements.txt` và chạy `pytest tests/ -v` để chặn build nếu test fail.
+2. **Build (`build`):** Dùng `gcr.io/cloud-builders/docker` build image gắn tag theo `$COMMIT_SHA` và `latest` (tận dụng `--cache-from` từ image `latest`).
+3. **Push (`push`):** Đẩy Docker image vừa build lên Container Registry (`gcr.io/$PROJECT_ID/ai-agent`).
+4. **Deploy (`deploy`):** Gọi `gcloud run deploy ai-agent` đưa image theo `$COMMIT_SHA` lên Cloud Run (`asia-southeast1`), cấu hình scaling (`min-instances=1` tránh cold start, `max-instances=10`), tài nguyên (`512Mi` RAM, `1` CPU), và lấy secret từ **Secret Manager** (`--set-secrets`); đồng thời `service.yaml` còn định nghĩa thêm `livenessProbe` (`/health`), `startupProbe` (`/ready`) và `containerConcurrency: 80` theo chuẩn Knative.
 
 ---
 
@@ -387,4 +397,7 @@ Total messages: 10
 | CP2 (Part 2) | Phân tích Dockerfile single vs multi-stage, đo size, chạy test container & Docker Compose stack | Hoàn thiện mục Part 2 trong `MISSION_ANSWERS.md` kèm sơ đồ kiến trúc | Tự chạy `docker build`, `docker run`, `docker image inspect` (`1.67GB` vs `240MB`) và test qua Nginx (`200 OK`) |
 | CP3 (Part 4) | Phân tích `develop` & `production` trong `04-api-gateway/`, chạy test `curl -i` để kiểm chứng 401/403/200/429 | Hoàn thiện mục Part 4 trong `MISSION_ANSWERS.md` (che token JWT, giải thích rate limit & cost guard) | Tự chạy test cả 2 bản trên WSL2 (`.venv`), xác nhận request 1–10 trả 200 và request 11 trả 429 |
 | CP4 (Part 5) | Kiểm tra health/readiness, test SIGTERM graceful shutdown và scale 3 agent instances qua Nginx + Redis | Hoàn thiện mục Part 5 trong `MISSION_ANSWERS.md` với output thật từ `app.py` và `test_stateless.py` | Tự chạy trên WSL2 + Docker Compose (`-p k5-day14-scaling`), xác nhận 3 instance phục vụ cùng session và thu dọn stack |
-| CP5 (Part 6) | Triển khai toàn bộ 12 tiêu chí trong `06-lab-complete/` (`app/`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml`) | Hoàn thiện các module theo Hợp đồng trong `06-lab-complete/README.md` | Tự chạy `python check_production_ready.py` đầy đủ trong Ubuntu WSL2 đạt `PASS 12/12` (`43/43 checks passed`, image `297 MB`, `docker stop` `0.8s`) và kiểm tra stack `docker compose` |
+| CP5 (Part 6) | Triển khai toàn bộ 12 tiêu chí trong `06-lab-complete/` (`app/`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml`) | Hoàn thiện các module theo Hợp đồng trong `06-lab-complete/README.md` | Tự chạy `python check_production_ready.py` đầy đủ trong Ubuntu WSL2 đạt `PASS 12/12` (`43/43 checks passed`, image `297 MB`, `docker stop` `0.6s`) và kiểm tra stack `docker compose` |
+| CP6 (Part 3) | Kiểm tra ảnh chụp, tạo `DEPLOYMENT.md`, so sánh `railway.toml` vs `render.yaml` và phân tích Cloud Run (`cloudbuild.yaml` & `service.yaml`) | Hoàn thiện `DEPLOYMENT.md` và mục Part 3 trong `MISSION_ANSWERS.md` | Tự kiểm tra thực tế `https://day14-agent-khanh.onrender.com` qua `/health` (`200`), `/ready` (`200`), `/ask` (`401` / `200`) và rà soát 3 ảnh không lộ secret |
+| CP7 (Part 7 Bước 1) | Thêm metric `agent_question_length_chars`, viết `.github/workflows/eval.yml`, chạy 7 load tests + 3 evals và bổ sung `KNOWLEDGE_BASE` | Sinh đủ 10 file JSON (`reports/`), cập nhật `mock_llm.py` (develop & production) và điền Mục 1–3 trong `BENCHMARK_REPORT.md` | Tự chạy `load_test.py` và `run_eval.py` đạt `23/23` (100%, 0 regression), đối chiếu từng con số với file JSON |
+| CP8 (Part 7 Bước 2) | Dựng stack observability (`agent`, `nginx`, `prometheus`, `grafana`, `jaeger`, `locust`), sửa `PYTHONUSERBASE` trong `production/Dockerfile`, chạy scaling benchmark & thí nghiệm fault injection | Ghi lại thời gian alert firing, phân tích trace + JSON log, trả lời Ex 7.4–7.7 và điền Mục 4–6 trong `BENCHMARK_REPORT.md` | Tự chạy `promtool test rules`, Locust `scale_1`/`scale_3`, truy vấn Jaeger/Prometheus API và đối chiếu trực tiếp với CSV + JSON log |
